@@ -1,0 +1,24 @@
+# requirements.txt
+
+# LangChain - ВАЖЕН ПОРЯДОК УСТАНОВКИ!
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+langchain>=0.3.0
+
+# Векторная БД и эмбеддинги
+chromadb>=0.4.22
+sentence-transformers>=2.2.2
+
+# Hybrid search (BM25)
+rank-bm25>=0.2.2
+
+# Парсинг документов через Docling
+docling>=1.0.0
+
+# Окружение
+python-dotenv>=1.0.0
+
+# Для логирования
+colorama>=0.4.6
