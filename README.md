@@ -1,223 +1,138 @@
-# Local Knowledge Base Manager (RAG)
+# Менеджер Локальной Базы Знаний (RAG v3.0)
 
-A lightweight, command‑line tool for building a **retrieval‑augmented generation** (RAG) knowledge base on your local machine.  
-It uses:
+Мощный консольный инструмент для создания и управления **локальной базой знаний** (RAG - Retrieval Augmented Generation).  
+Скрипт превращает ваши документы в векторы (эмбеддинги) и сохраняет их в ChromaDB, используя локальный сервер LM Studio.
 
-* **LM Studio** – a fast local LLM server that exposes an OpenAI‑compatible API.
-* **ChromaDB** – a vector store with HNSW indexing, ideal for similarity search.
-
-> The script works entirely offline; no cloud calls are required.
+> **Полная приватность:** Все работает офлайн. Никакие данные не отправляются в облако.
 
 ---
 
-## 📦 Prerequisites
+## ✨ Ключевые возможности (v3.0)
 
-| Component | Minimum version |
-|-----------|-----------------|
-| Python     | 3.8+            |
-| LM Studio  | ≥ 0.1 (or any local server that implements the OpenAI API) |
-| ChromaDB   | `chromadb==latest` |
+*   **🧠 Умная нарезка (Smart Chunking):** Текст разбивается рекурсивно (по абзацам, предложениям), а не просто по символам. Это сохраняет смысл контекста для нейросети.
+*   **⚡ Инкрементальное обновление:** Скрипт запоминает MD5-хэши файлов. При повторном запуске он **пропускает** неизмененные файлы и обновляет только отредактированные.
+*   **🚀 Пакетная обработка (Batching):** Отправляет данные в LM Studio пачками (по 50+ штук), ускоряя индексацию в 10-20 раз.
+*   **🗂 Управление коллекциями:** Создание, переключение, очистка и полное удаление коллекций прямо из меню.
+*   **🛡 Надежность:** Автоматическое переключение на безопасную коллекцию при удалении текущей, обработка ошибок битых файлов.
 
-### Install dependencies
+---
+
+## 📦 Требования
+
+| Компонент | Версия / Примечание |
+|-----------|---------------------|
+| **Python** | 3.10+ |
+| **LM Studio** | Любая версия с поддержкой Local Server |
+| **ChromaDB** | `chromadb` (последняя версия) |
+
+### Установка зависимостей
+
+Рекомендуется использовать виртуальное окружение:
 
 ```bash
-# Optional: create a virtual environment first
-python -m venv .venv
-source .venv/bin/activate      # Windows: .\.venv\Scripts\activate
+# Создание окружения (Windows)
+python -m venv venv
+.\venv\Scripts\activate
 
-pip install -r requirements.txt
+# Установка библиотек
+pip install chromadb openai pypdf python-docx tqdm colorama
 ```
 
-**requirements.txt**
+---
+
+## ⚙️ Настройка
+
+Скрипт `rag_manager.py` уже настроен на работу "из коробки", но вы можете изменить пути в начале файла (класс `Config`) или использовать переменные окружения:
+
+| Переменная (в коде или ENV) | Описание | Значение по умолчанию      |
+|-----------------------------|----------|----------------------------|
+| `CHROMA_DB_PATH` | Где хранится база данных (папка) | `C:\chroma_db`             |
+| `DEFAULT_DOCS_DIR` | Папка с документами для сканирования | `C:\Documents`             |
+| `LM_STUDIO_URL` | Адрес локального сервера | `http://localhost:1234/v1` |
+| `BATCH_SIZE` | Размер пачки векторов | `50`                       |
+
+---
+
+## 🚀 Запуск и Использование
+
+### Шаг 1: Подготовка LM Studio
+1. Откройте **LM Studio**.
+2. Перейдите во вкладку **Local Server** (`<->`).
+3. Загрузите модель эмбеддингов (рекомендуется: `nomic-embed-text-v1.5` или `all-MiniLM-L6-v2`).
+    * *Важно: Не используйте LLM (Llama/Mistral) для эмбеддинга, нужна именно Text Embedding Model.*
+4. Нажмите зеленую кнопку **Start Server**.
+
+### Шаг 2: Запуск скрипта
+```bash
+python rag_manager.py
+```
+
+### Шаг 3: Работа с меню
 
 ```text
-chromadb>=0.4
-openai>=1.3
-pypdf>=3.17
-python-docx>=1.1
-tqdm>=4.66
-colorama>=0.4
+=== RAG MANAGER v3.0 [main_collection] ===
+1. Индексировать папку (Smart Update)
+2. Управление коллекциями (Создать/Выбрать/Удалить)
+3. Очистить текущую коллекцию (Truncate)
+4. Статистика и проверка
+5. Выход
+```
+
+#### 1️⃣ Индексация (Smart Update)
+Укажите путь к папке с файлами (txt, md, pdf, docx, py, json).
+*   Скрипт просканирует папку.
+*   Сравнит хэши файлов с базой.
+*   **[SKIP]** – файл не менялся, пропускаем.
+*   **[READ]** – файл новый или изменен, индексируем.
+
+#### 2️⃣ Управление коллекциями
+Позволяет вести несколько независимых баз знаний (например, `project_alpha`, `personal_notes`).
+*   **(N)ew:** Создать новую коллекцию.
+*   **(S)witch:** Переключиться на другую.
+*   **(D)elete:** Удалить текущую коллекцию **насовсем** (скрипт перебросит вас в `main_collection`).
+
+#### 3️⃣ Очистка (Truncate)
+Удаляет все векторы из текущей коллекции, но оставляет саму коллекцию пустой. Удобно для полной переиндексации с нуля.
+
+---
+
+## 📚 Архитектура данных
+
+### Как хранятся данные?
+Каждый кусок текста сохраняется в ChromaDB со следующими метаданными:
+
+```json
+{
+  "id": "filename.pdf_12",       // Уникальный ID (Имя + индекс чанка)
+  "document": "Текст чанка...",  // Сам текст для поиска
+  "metadata": {
+    "source": "filename.pdf",    // Имя исходного файла
+    "file_hash": "a1b2c3d4...",  // MD5 хэш файла (для проверки изменений)
+    "chunk_index": 12            // Порядковый номер в тексте
+  },
+  "embedding": [0.123, -0.567, ...] // Вектор (768 float чисел)
+}
 ```
 
 ---
 
-## ⚙️ Configuration
+## 🛠 Устранение неполадок
 
-The script reads a few environment variables.  
-If you leave them unset, the defaults in `save_to_chroma.py` will be used.
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `CHROMA_DB_PATH` | Path where ChromaDB stores its data | `G:\AIModels\chroma_db\chroma_db` |
-| `DEFAULT_DOCS_DIR` | Folder that is used when the user presses *Enter* on the file‑path prompt | `G:\Android\ChromaDbDocuments` |
-| `LM_STUDIO_URL` | Base URL of the local LM Studio server | `http://localhost:1234/v1` |
-| `LM_STUDIO_API_KEY` | API key accepted by LM Studio (usually a dummy value) | `lm-studio` |
-| `CHROMA_COLLECTION` | Name of the Chroma collection to use | `my_knowledge_base` |
-
-Example:
-
-```bash
-export CHROMA_DB_PATH="/home/user/chroma_db"
-export DEFAULT_DOCS_DIR="/home/user/docs"
-export LM_STUDIO_URL="http://localhost:1234/v1"
-export LM_STUDIO_API_KEY="lm-studio"
-```
-
-> **Tip:** If you use Windows PowerShell, prepend `$env:` instead of `export`.
+| Проблема | Возможная причина | Решение |
+|----------|-------------------|---------|
+| **Нет связи с LM Studio** | Сервер не запущен или не тот порт | Запустите Local Server на порту 1234. |
+| **Ошибки 404/400 при эмбеддинге** | В LM Studio не загружена модель | Загрузите именно *Embedding Model* (напр. Nomic), а не Chat Model. |
+| **Dimension mismatch** | Сменили модель эмбеддинга | Если вы начали базу одной моделью (384 dim), а продолжили другой (768 dim), поиск сломается. Очистите коллекцию (пункт 3) и пересоздайте. |
+| **Файл не читается** | Сложная кодировка или битый PDF | Скрипт выведет ошибку в консоль, но продолжит работу с другими файлами. |
 
 ---
 
-## 🚀 Running the script
+## 🔌 Интеграция с MCP (Model Context Protocol)
 
-```bash
-python save_to_chroma.py
-```
+Чтобы использовать эту базу в IDE (Cursor/Windsurf) или Claude Desktop через MCP:
 
-The console shows a menu:
+1. Убедитесь, что путь `CHROMA_DB_PATH` в скрипте совпадает с путем в конфиге MCP.
+2. Настройте `chroma-mcp` на режим `persistent`.
+3. Коллекция по умолчанию: `main_collection` (или та, которую вы выбрали активной).
 
-```
-=== Менеджер Локальной Базы Знаний (RAG) ===
-1. Индексировать папку (Добавить файлы)
-2. Удалить текущую коллекцию (Очистить базу)
-3. Информация о базе
-4. Выход
-Выберите действие (1-4):
-```
-
-### 1️⃣ Index a folder
-
-*Enter the path to a directory containing `.txt`, `.md`, `.pdf` or `.docx` files.*  
-If you just press **Enter**, `DEFAULT_DOCS_DIR` is used.
-
-The script:
-
-1. Scans all files in the folder.
-2. Reads each file, handling the four supported formats.
-3. Splits the text into chunks (`CHUNK_SIZE=1000`, `CHUNK_OVERLAP=200`).
-4. For every chunk:
-   * Generates an embedding via LM Studio (`text‑embedding-nomic-embed-text-v1.5@q8_0` by default).
-   * Stores it in Chroma along with the chunk text and metadata (`source`, `position`).
-
-> **Note:** The chunk ID is a MD5 hash of `<filename><offset>` – guarantees uniqueness.
-
-### 2️⃣ Delete current collection
-
-Wipes all documents from the active Chroma collection and recreates an empty one.
-
-### 3️⃣ Database info
-
-Shows:
-
-* Path to the database.
-* Collection name.
-* Total number of vectors.
-* A sample of the first five metadata entries (useful for debugging).
-
-### 4️⃣ Exit
-
-Closes the program.
-
----
-
-## 📚 Behind‑the‑scenes
-
-| Component | What it does |
-|-----------|--------------|
-| **LM Studio** | Provides a local OpenAI‑compatible endpoint (`/v1/embeddings`). The script uses `openai.OpenAI(...)` to call it. |
-| **ChromaDB** | Stores vectors, documents and metadata in an HNSW index. All operations are performed through the Python client. |
-| **Chunking** | Splits long text into overlapping chunks so that retrieval is fine‑grained. |
-| **Vector generation** | `text-embedding-nomic-embed-text-v1.5@q8_0` (or any model you loaded in LM Studio) – returns a 768‑dimensional float32 vector. |
-
-> If LM Studio reports *“No models loaded”*, load one via the UI or CLI:
-> ```bash
-> lms load text-embedding-nomic-embed-text-v1.5@q8_0
-> ```
-
----
-
-## 🔧 Extending / Customising
-
-### Changing the chunk size
-
-Edit `CHUNK_SIZE` and `CHUNK_OVERLAP` near the top of `save_to_chroma.py`.
-
-```python
-# Chunking (default: 1000 chars, 200 overlap)
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-```
-
-### Using a different embedding model
-
-Set `embedding_model` when creating `VectorDBManager`:
-
-```python
-db = VectorDBManager(CHROMA_PATH,
-                     collection_name="my_knowledge_base",
-                     embedding_model="openai/embedding-ada-002")
-```
-
-> Ensure the chosen model is loaded in LM Studio.
-
-### Programmatic usage
-
-You can import the classes and use them directly from another script:
-
-```python
-from save_to_chroma import VectorDBManager, FileProcessor
-
-db = VectorDBManager(Path("/path/to/chroma_db"), "my_collection",
-                     embedding_model="text-embedding-nomic-embed-text-v1.5@q8_0")
-
-processor = FileProcessor()
-text = processor.read_file("some.pdf")
-chunks = processor.chunk_text(text, "some.pdf")
-
-db.add_documents(chunks)
-```
-
----
-
-## 📊 Querying the collection
-
-While the interactive menu doesn’t expose a query UI, you can retrieve data in code:
-
-```python
-# 1️⃣ By ID
-res = db.collection.get(ids=["654c800a7508ec118a5ee9eb66f4a608"])
-print(res["documents"][0])
-
-# 2️⃣ By text similarity
-query_res = db.collection.query(
-    query_texts=["Игорь"],
-    n_results=3
-)
-print(query_res["documents"])
-
-# 3️⃣ By metadata filter
-res = db.collection.get(where={"source": "about_me.md"}, limit=10)
-print(res["metadatas"])
-```
-
----
-
-## 🛠️ Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| `No models loaded` error | LM Studio has no embedding model loaded | Load one via UI or CLI (`lms load …`) |
-| Embedding generation hangs / slow | Model is large or GPU memory limited | Switch to a lighter model, or run on CPU |
-| Empty collection after indexing | File path wrong / file unsupported | Verify the folder and file types; check console logs |
-| Duplicate IDs / collisions | Same file processed twice | Ensure unique filenames or change chunk ID logic |
-
----
-
-## 🎉 What you get
-
-* A **self‑contained knowledge base** that can be queried locally.
-* Fast similarity search thanks to Chroma’s HNSW index.
-* Zero external dependencies (no cloud, no API keys).
-* Ready‑to‑use example for building a RAG pipeline:
-   * Generate embeddings → store in Chroma → query by text → feed results into an LLM.
-
-Happy indexing! 🚀
+Приятного использования! 🚀
